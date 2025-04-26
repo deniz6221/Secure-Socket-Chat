@@ -10,6 +10,7 @@ import hashlib
 import pyDes
 import random
 from collections import OrderedDict
+import sys
 
 def get_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -111,21 +112,61 @@ def send_init_resp(ip, crypt_g, crypt_p, crypt_private_session_key):
         with thread_lock:
             online_users[ip]["private_session_key"] = crypt_private_session_key
 
+def encrypt_send_json(ip, message):
+    # Encrypt the message using the user's crypt_key
+    try:
+        if ip in online_users.keys() and online_users[ip]["crypt_key"] is not None:
+            crypt_key = online_users[ip]["crypt_key"].ljust(24)
+            json_message = json.dumps(message).encode()
+            encrypted_message = pyDes.triple_des(crypt_key).encrypt(json_message, padmode=2)
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                s.connect((ip, 40000))
+                s.send(encrypted_message)
+                s.close()
+            return True
+        else:
+            return False
+    except:
+        return False
+    
+def find_message_type(ip, message):
+    try:
+        stripped_message = message.decode().strip()
+        json_message = json.loads(stripped_message)
+        if "type" in json_message:
+            return json_message, json_message["type"].lower()
+    except:
+        pass
+    # Check if the message is encrypted
+    try:
+
+        if ip in online_users.keys() and online_users[ip]["crypt_key"] is not None:
+            crypt_key = online_users[ip]["crypt_key"].ljust(24)
+            decrypted_message = pyDes.triple_des(crypt_key).decrypt(message, padmode=2)
+            decrypted_message = json.loads(decrypted_message.decode())
+            if "type" in decrypted_message:
+                return decrypted_message, decrypted_message["type"].lower()
+    except:
+        pass
+    return {}, "unknown"
+        
+
 
 def serverThread():
     global renderState
     global active_user
     while True:
         client, address = server.accept()
-        output = client.recv(1024).decode()
+        output = client.recv(4096)
         client.close()
         if output:
             try:
                 client_ip = address[0]
-                message = output.strip()
-                message = json.loads(message)
-                message_type = message["type"].lower()
+                
+                message, message_type = find_message_type(client_ip, output)
                 if (message_type == "message"):
+
                     payload = message["payload"]
                     sender_name = message["sender_name"]
 
@@ -133,9 +174,7 @@ def serverThread():
                         if client_ip in online_users.keys():
                             user = online_users[client_ip]
                             if user["crypt_key"] is not None:
-                                payload = bytes.fromhex(payload)
-                                payload = pyDes.triple_des(user["crypt_key"].ljust(24)).decrypt(payload, padmode=2)
-                                evolved_crypt_key = hashlib.sha256(user["crypt_key"] + payload).digest()[:24]
+                                evolved_crypt_key = hashlib.sha256(user["crypt_key"] + payload.encode()).digest()[:24]
                                 user["crypt_key"] = evolved_crypt_key
                             user["messages"].append({"sender": sender_name, "message": payload, "timestamp": message["timestamp"]})
                             if renderState != 2 and renderState != 3:
@@ -145,7 +184,7 @@ def serverThread():
                                 renderState = 3    
                             else:    
                                 user["unread_messages"] += 1    
-                            break         
+                                    
                 elif (message_type == "discover_resp"):
                     sender_name = message["responder_name"]
                     with thread_lock:
@@ -231,6 +270,8 @@ def renderThread():
                 print()
                 if (len(online_users) != 0):
                     print("Enter user index to view chat or enter Q to exit the program: ")
+                else:
+                    print("No users are online at the moment, enter Q to exit the program: ")
                 renderState = 0
             elif renderState == 3:
                 os.system('cls' if os.name == 'nt' else 'clear')
@@ -253,7 +294,7 @@ def inputThread():
         with thread_lock:
             if renderState == 0 or renderState == 1:
                 if userInput == "Q":
-                    os._exit(0)
+                    break
                 if len(online_users) <= 0:
                     continue
                 online_users_list = list(online_users.items())
@@ -276,9 +317,8 @@ def inputThread():
                     active_user = "-1"
                     renderState = 1
                 else:
-                    encrypted_message = pyDes.triple_des(online_users[active_user]["crypt_key"].ljust(24)).encrypt(message, padmode=2)
-                    encrypted_message = encrypted_message.hex()
-                    res = send_json(active_user, {"type": "MESSAGE", "sender_name": username, "payload": encrypted_message, "timestamp": int(time.time())})
+
+                    res = encrypt_send_json(active_user, {"type": "MESSAGE", "sender_name": username, "payload": message, "timestamp": int(time.time())})
                     if res:
                         online_users[active_user]["messages"].append({"sender": username, "message": message, "timestamp": int(time.time())})
                         evolved_crypt_key = hashlib.sha256(online_users[active_user]["crypt_key"] + message.encode()).digest()[:24]
@@ -303,4 +343,5 @@ render_Thread.daemon = True
 render_Thread.start()
 
 input_Thread.join()
+sys.exit(0)
 
