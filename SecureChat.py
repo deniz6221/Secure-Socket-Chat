@@ -220,8 +220,8 @@ recieved_timestamps = set()
 def broadcast_server_thread():
     global renderState
     while True:
-        data, addr = broadcast_server.recvfrom(1024)
         try:
+            data, addr = broadcast_server.recvfrom(1024)
             client_ip = addr[0]
             if client_ip == my_ip:
                 continue
@@ -343,5 +343,6 @@ render_Thread.daemon = True
 render_Thread.start()
 
 input_Thread.join()
+close_servers()
 sys.exit(0)
 
