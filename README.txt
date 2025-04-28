@@ -11,5 +11,4 @@ To run the application follow these actions on ubuntu:
 After entering your name the application will discover any other computers running the same app within your network.
 Upon discovery, the online users will be listed. You can choose a user by their index and send messages to them.
 Each message recieve, message send and user discovery will cause re renders. This makes the app display everything almost in real time.
-The app uses Diffie-Hellman key exchange and DES encryption to safely transport messages. The shared key evolves over time with sent messages,
-this makes the sniffing attacks almost impossible.
+The app uses Diffie-Hellman key exchange and DES encryption to safely transport messages. The shared key evolves over time with sent messages, this makes the sniffing attacks almost impossible.
