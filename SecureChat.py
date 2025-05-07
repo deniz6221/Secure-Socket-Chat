@@ -65,9 +65,11 @@ while username.strip() == "" or len(username) >= 128:
 
 my_ip = get_ip()
 broadcast_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+broadcast_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 broadcast_server.bind(("0.0.0.0", 40000))
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 server.bind((my_ip, 40000))
 server.listen()
 
@@ -78,8 +80,18 @@ thread_lock = threading.Lock()
 
 
 def close_servers():
-    broadcast_server.close()
-    server.close()
+    try:
+        broadcast_server.shutdown(socket.SHUT_RDWR)
+    except:
+        pass
+    finally:
+        broadcast_server.close()
+    try:
+        server.shutdown(socket.SHUT_RDWR)
+    except:
+        pass
+    finally:
+        server.close()
 atexit.register(close_servers)
 
 def update_user_key(ip, key):
@@ -97,8 +109,9 @@ def insert_user_key(ip, shared, private):
         if renderState != 2 and renderState != 3:
             renderState = 1
 def send_init(ip):
-    crypt_g, crypt_p = generate_safe_prime()
-    crypt_private_session_key = getRandomRange(1, crypt_p - 1)
+    prime_bits = 256
+    crypt_g, crypt_p = generate_safe_prime(prime_bits)
+    crypt_private_session_key = getRandomRange(2**(prime_bits // 2), crypt_p - 2)
     public_key = pow(crypt_g, crypt_private_session_key, crypt_p)
     json_message = {"type": "INIT", "sender_name": username, "g": crypt_g, "p": crypt_p, "public_key": public_key}
     if send_json(ip, json_message):
@@ -157,11 +170,12 @@ def serverThread():
     global renderState
     global active_user
     while True:
-        client, address = server.accept()
-        output = client.recv(4096)
-        client.close()
-        if output:
-            try:
+        try:
+            client, address = server.accept()
+            output = client.recv(4096)
+            client.close()
+            if output:
+                
                 client_ip = address[0]
                 
                 message, message_type = find_message_type(client_ip, output)
@@ -200,7 +214,7 @@ def serverThread():
                     shared_key = pow(public_key, crypt_private_key, crypt_p)
                     hash_key = hashlib.sha256(str(shared_key).encode()).digest()[:24]
                     with thread_lock:
-                         insert_user_key(client_ip, hash_key, crypt_private_key)
+                            insert_user_key(client_ip, hash_key, crypt_private_key)
                     send_init_resp(client_ip, crypt_g, crypt_p, crypt_private_key)
                 elif (message_type == "init_resp"):
                     crypt_g = message["g"]
@@ -210,10 +224,9 @@ def serverThread():
                     shared_key = pow(public_key, crypt_private_key, crypt_p)
                     hash_key = hashlib.sha256(str(shared_key).encode()).digest()[:24]
                     with thread_lock:
-                        update_user_key(client_ip, hash_key)
-                    
-            except:
-                pass
+                        update_user_key(client_ip, hash_key)                        
+        except:
+            pass
 
 recieved_timestamps = set()
 
